@@ -2459,14 +2459,12 @@ static netdev_features_t igb_fix_features(struct net_device *netdev,
 static int igb_set_features(struct net_device *netdev,
 	netdev_features_t features)
 {
-	netdev_features_t changed = netdev->features ^ features;
 	struct igb_adapter *adapter = netdev_priv(netdev);
+	netdev_features_t changed = netdev->features ^ features;
+	bool need_reset = false;
 
 	if (changed & NETIF_F_HW_VLAN_CTAG_RX)
 		igb_vlan_mode(netdev, features);
-
-	if (!(changed & (NETIF_F_RXALL | NETIF_F_NTUPLE)))
-		return 0;
 
 	if (!(features & NETIF_F_NTUPLE)) {
 		struct hlist_node *node2;
@@ -2483,9 +2481,15 @@ static int igb_set_features(struct net_device *netdev,
 		adapter->nfc_filter_count = 0;
 	}
 
+	if (changed & (NETIF_F_RXALL | NETIF_F_NTUPLE))
+		need_reset = true;
+
 	netdev->features = features;
 
-	igb_do_reset(netev);
+	if (need_reset)
+		igb_do_reset(netdev);
+	else if (changed & NETIF_F_HW_VLAN_CTAG_FILTER)
+		igb_set_rx_mode(netdev);
 
 	return 1;
 }
@@ -3171,6 +3175,7 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* copy netdev features into list of user selectable features */
 	netdev->hw_features |= netdev->features |
+			       NETIF_F_HW_VLAN_CTAG_FILTER |
 			       NETIF_F_HW_VLAN_CTAG_RX |
 			       NETIF_F_HW_VLAN_CTAG_TX |
 			       NETIF_F_RXALL;
@@ -5014,6 +5019,7 @@ static void igb_set_rx_mode(struct net_device *netdev)
 	struct e1000_hw *hw = &adapter->hw;
 	unsigned int vfn = adapter->vfs_allocated_count;
 	u32 rctl = 0, vmolr = 0, rlpml = MAX_JUMBO_FRAME_SIZE;
+	netdev_features_t features = netdev->features;
 	int count;
 
 	/* Check for Promiscuous and All Multicast modes */
@@ -5024,7 +5030,11 @@ static void igb_set_rx_mode(struct net_device *netdev)
 		/* enable use of UTA filter to force packets to default pool */
 		if (hw->mac.type == e1000_82576)
 			vmolr |= E1000_VMOLR_ROPE;
+
+		features &= ~NETIF_F_HW_VLAN_CTAG_FILTER;
 	} else {
+		if (features & NETIF_F_RXALL)
+			features &= ~NETIF_F_HW_VLAN_CTAG_FILTER;
 		if (netdev->flags & IFF_ALLMULTI) {
 			rctl |= E1000_RCTL_MPE;
 			vmolr |= E1000_VMOLR_MPME;
@@ -5056,13 +5066,12 @@ static void igb_set_rx_mode(struct net_device *netdev)
 	rctl |= E1000_RCTL_VFE;
 
 	/* disable VLAN filtering for modes that require it */
-	if ((netdev->flags & IFF_PROMISC) ||
-	    (netdev->features & NETIF_F_RXALL)) {
+	if (features & NETIF_F_HW_VLAN_CTAG_FILTER) {
+		igb_vlan_promisc_disable(adapter);
+	} else {
 		/* if we fail to set all rules then just clear VFE */
 		if (igb_vlan_promisc_enable(adapter))
 			rctl &= ~E1000_RCTL_VFE;
-	} else {
-		igb_vlan_promisc_disable(adapter);
 	}
 
 	/* update state of unicast, multicast, and VLAN filtering modes */
