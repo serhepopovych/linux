@@ -55,6 +55,7 @@
 #define E1000_CTRL_EXT_LINK_MODE_SGMII	0x00800000
 #define E1000_CTRL_EXT_LINK_MODE_GMII	0x00000000
 #define E1000_CTRL_EXT_EIAME	0x01000000
+#define E1000_CTRL_EXT_VLAN	0x04000000
 #define E1000_CTRL_EXT_IRCA		0x00000001
 /* Interrupt delay cancellation */
 /* Driver loaded bit for FW */
@@ -88,6 +89,7 @@
 #define E1000_RXD_STAT_VP       0x08    /* IEEE VLAN Packet */
 #define E1000_RXD_STAT_UDPCS    0x10    /* UDP xsum calculated */
 #define E1000_RXD_STAT_TCPCS    0x20    /* TCP xsum calculated */
+#define E1000_RXD_STAT_VEXT     0x200   /* First VLAN in double VLAN packet */
 #define E1000_RXD_STAT_TS       0x10000 /* Pkt was time stamped */
 
 #define E1000_RXDEXT_STATERR_LB    0x00040000
@@ -365,6 +367,9 @@
 #define E1000_CT_SHIFT                  4
 #define E1000_COLLISION_DISTANCE        63
 #define E1000_COLD_SHIFT                12
+
+/* Double VLAN EtherType */
+#define E1000_VET_EXT_SHIFT 16
 
 /* As per the EAS the maximum supported size is 9.5KB (9728 bytes) */
 #define MAX_JUMBO_FRAME_SIZE		0x2600
