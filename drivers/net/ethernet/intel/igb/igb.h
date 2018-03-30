@@ -480,6 +480,9 @@ struct igb_adapter {
 	u16 tx_itr;
 	u16 rx_itr;
 
+	/* Outer VLAN Ethernet type */
+	u16 outer_vlan_proto;
+
 	/* TX */
 	u16 tx_work_limit;
 	u32 tx_timeout_count;
@@ -681,6 +684,7 @@ int igb_ptp_set_ts_config(struct net_device *netdev, struct ifreq *ifr);
 int igb_ptp_get_ts_config(struct net_device *netdev, struct ifreq *ifr);
 void igb_set_flag_queue_pairs(struct igb_adapter *, const u32);
 unsigned int igb_get_max_rss_queues(struct igb_adapter *);
+void igb_set_rx_mode(struct net_device *netdev);
 void igb_do_reset(struct net_device *netdev);
 #ifdef CONFIG_IGB_HWMON
 void igb_sysfs_exit(struct igb_adapter *adapter);

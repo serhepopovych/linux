@@ -126,8 +126,10 @@ static const char igb_gstrings_test[][ETH_GSTRING_LEN] = {
 #define IGB_TEST_LEN (sizeof(igb_gstrings_test) / ETH_GSTRING_LEN)
 
 static const char igb_priv_flags_strings[][ETH_GSTRING_LEN] = {
-#define IGB_PRIV_FLAGS_LEGACY_RX	BIT(0)
+#define IGB_PRIV_FLAGS_LEGACY_RX			BIT(0)
 	"legacy-rx",
+#define IGB_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD		BIT(1)
+	"stag-ethertype-802.1ad",
 };
 
 #define IGB_PRIV_FLAGS_STR_LEN ARRAY_SIZE(igb_priv_flags_strings)
@@ -3439,25 +3441,56 @@ static u32 igb_get_priv_flags(struct net_device *netdev)
 	if (adapter->flags & IGB_FLAG_RX_LEGACY)
 		priv_flags |= IGB_PRIV_FLAGS_LEGACY_RX;
 
+	if (adapter->outer_vlan_proto == ETH_P_8021AD)
+		priv_flags |= IGB_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD;
+
 	return priv_flags;
 }
 
 static int igb_set_priv_flags(struct net_device *netdev, u32 priv_flags)
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
-	unsigned int flags = adapter->flags;
+	u32 changed = igb_get_priv_flags(netdev) ^ priv_flags;
+	enum {
+		IGB_SPF_NONE		= 0,
+		IGB_SPF_REINIT_LOCKED	= (1 << 0),
+		IGB_SPF_SET_RX_MODE	= (1 << 1)
+	} do_reset = IGB_SPF_NONE;
 
-	flags &= ~IGB_FLAG_RX_LEGACY;
-	if (priv_flags & IGB_PRIV_FLAGS_LEGACY_RX)
-		flags |= IGB_FLAG_RX_LEGACY;
+	if (!changed)
+		return 0;
 
-	if (flags != adapter->flags) {
-		adapter->flags = flags;
+	/* Legacy RX */
+	if (changed & IGB_PRIV_FLAGS_LEGACY_RX) {
+		if (priv_flags & IGB_PRIV_FLAGS_LEGACY_RX)
+			adapter->flags |= IGB_FLAG_RX_LEGACY;
+		else
+			adapter->flags &= ~IGB_FLAG_RX_LEGACY;
 
-		/* reset interface to repopulate queues */
-		if (netif_running(netdev))
-			igb_reinit_locked(adapter);
+		do_reset |= IGB_SPF_REINIT_LOCKED;
 	}
+
+	/* Outer VLAN Ethernet Type */
+	if (changed & IGB_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD) {
+		if (priv_flags & IGB_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD)
+			adapter->outer_vlan_proto = ETH_P_8021AD;
+		else
+			adapter->outer_vlan_proto = ETH_P_8021Q;
+
+		if (netdev->features & NETIF_F_HW_VLAN_STAG_RX)
+			do_reset |= IGB_SPF_SET_RX_MODE;
+	}
+
+	if (do_reset & IGB_SPF_REINIT_LOCKED) {
+		/* reset interface to repopulate queues */
+		if (netif_running(netdev)) {
+			igb_reinit_locked(adapter);
+			do_reset &= ~IGB_SPF_SET_RX_MODE;
+		}
+	}
+
+	if (do_reset & IGB_SPF_SET_RX_MODE)
+		igb_set_rx_mode(netdev);
 
 	return 0;
 }
@@ -3486,6 +3519,8 @@ static const struct ethtool_ops igb_ethtool_ops = {
 	.get_ethtool_stats	= igb_get_ethtool_stats,
 	.get_coalesce		= igb_get_coalesce,
 	.set_coalesce		= igb_set_coalesce,
+	.get_priv_flags		= igb_get_priv_flags,
+	.set_priv_flags		= igb_set_priv_flags,
 	.get_ts_info		= igb_get_ts_info,
 	.get_rxnfc		= igb_get_rxnfc,
 	.set_rxnfc		= igb_set_rxnfc,

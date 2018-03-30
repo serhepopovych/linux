@@ -124,7 +124,6 @@ static void igb_clean_all_tx_rings(struct igb_adapter *);
 static void igb_clean_all_rx_rings(struct igb_adapter *);
 static void igb_clean_tx_ring(struct igb_ring *);
 static void igb_clean_rx_ring(struct igb_ring *);
-static void igb_set_rx_mode(struct net_device *);
 static void igb_update_phy_info(struct timer_list *);
 static void igb_watchdog(struct timer_list *);
 static void igb_watchdog_task(struct work_struct *);
@@ -2422,7 +2421,7 @@ void igb_reset(struct igb_adapter *adapter)
 
 	/* Enable h/w to recognize an 802.1Q/802.1AD VLAN Ethernet packet */
 	if (1) {
-		__le16 vlan_proto = cpu_to_le16(ETH_P_8021Q);
+		__le16 vlan_proto = cpu_to_le16(adapter->outer_vlan_proto);
 		u32 vet = (__force u32)((vlan_proto << E1000_VET_EXT_SHIFT) |
 					cpu_to_le16(ETH_P_8021Q));
 
@@ -3255,6 +3254,9 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* MTU range: 68 - 9216 */
 	netdev->min_mtu = ETH_MIN_MTU;
 	netdev->max_mtu = MAX_STD_JUMBO_FRAME_SIZE;
+
+	/* By default outer vlan header ethertype is the same as inner */
+	adapter->outer_vlan_proto = ETH_P_8021Q;
 
 	adapter->en_mng_pt = igb_enable_mng_pass_thru(hw);
 
@@ -5101,7 +5103,7 @@ static void igb_vlan_promisc_disable(struct igb_adapter *adapter)
 static void igb_vlan_double_enable(struct igb_adapter *adapter)
 {
 	struct e1000_hw *hw = &adapter->hw;
-	__le16 vlan_proto = cpu_to_le16(ETH_P_8021Q);
+	__le16 vlan_proto = cpu_to_le16(adapter->outer_vlan_proto);
 	u32 ctrl_ext, vet;
 
 	ctrl_ext = rd32(E1000_CTRL_EXT);
@@ -5134,7 +5136,7 @@ static void igb_vlan_double_disable(struct igb_adapter *adapter)
  *  responsible for configuring the hardware for proper unicast, multicast,
  *  promiscuous mode, and all-multi behavior.
  **/
-static void igb_set_rx_mode(struct net_device *netdev)
+void igb_set_rx_mode(struct net_device *netdev)
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
