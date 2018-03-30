@@ -134,10 +134,12 @@ static const char ixgbe_gstrings_test[][ETH_GSTRING_LEN] = {
 #define IXGBE_TEST_LEN sizeof(ixgbe_gstrings_test) / ETH_GSTRING_LEN
 
 static const char ixgbe_priv_flags_strings[][ETH_GSTRING_LEN] = {
-#define IXGBE_PRIV_FLAGS_LEGACY_RX	BIT(0)
+#define IXGBE_PRIV_FLAGS_LEGACY_RX				BIT(0)
 	"legacy-rx",
 #define IXGBE_PRIV_FLAGS_VF_IPSEC_EN	BIT(1)
 	"vf-ipsec",
+#define IXGBE_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD		BIT(2)
+	"stag-ethertype-802.1ad",
 };
 
 #define IXGBE_PRIV_FLAGS_STR_LEN ARRAY_SIZE(ixgbe_priv_flags_strings)
@@ -3415,29 +3417,66 @@ static u32 ixgbe_get_priv_flags(struct net_device *netdev)
 	if (adapter->flags2 & IXGBE_FLAG2_VF_IPSEC_ENABLED)
 		priv_flags |= IXGBE_PRIV_FLAGS_VF_IPSEC_EN;
 
+	if (adapter->outer_vlan_proto == ETH_P_8021AD)
+		priv_flags |= IXGBE_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD;
+
 	return priv_flags;
 }
 
 static int ixgbe_set_priv_flags(struct net_device *netdev, u32 priv_flags)
 {
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
-	unsigned int flags2 = adapter->flags2;
+	u32 changed = ixgbe_get_priv_flags(netdev) ^ priv_flags;
+	enum {
+		IXGBE_SPF_NONE		= 0,
+		IXGBE_SPF_REINIT_LOCKED	= (1 << 0),
+		IXGBE_SPF_SET_RX_MODE	= (1 << 1)
+	} do_reset = IXGBE_SPF_NONE;
 
-	flags2 &= ~IXGBE_FLAG2_RX_LEGACY;
-	if (priv_flags & IXGBE_PRIV_FLAGS_LEGACY_RX)
-		flags2 |= IXGBE_FLAG2_RX_LEGACY;
+	if (!changed)
+		return 0;
 
-	flags2 &= ~IXGBE_FLAG2_VF_IPSEC_ENABLED;
-	if (priv_flags & IXGBE_PRIV_FLAGS_VF_IPSEC_EN)
-		flags2 |= IXGBE_FLAG2_VF_IPSEC_ENABLED;
+	/* Legacy RX */
+	if (changed & IXGBE_PRIV_FLAGS_LEGACY_RX) {
+		if (priv_flags & IXGBE_PRIV_FLAGS_LEGACY_RX)
+			adapter->flags2 |= IXGBE_FLAG2_RX_LEGACY;
+		else
+			adapter->flags2 &= ~IXGBE_FLAG2_RX_LEGACY;
 
-	if (flags2 != adapter->flags2) {
-		adapter->flags2 = flags2;
-
-		/* reset interface to repopulate queues */
-		if (netif_running(netdev))
-			ixgbe_reinit_locked(adapter);
+		do_reset |= IXGBE_SPF_REINIT_LOCKED;
 	}
+
+	/* IPsec */
+	if (changed & IXGBE_PRIV_FLAGS_VF_IPSEC_EN) {
+		if (priv_flags & IXGBE_PRIV_FLAGS_VF_IPSEC_EN)
+			adapter->flags2 |= IXGBE_FLAG2_VF_IPSEC_ENABLED;
+		else
+			adapter->flags2 &= ~IXGBE_FLAG2_VF_IPSEC_ENABLED;
+
+		do_reset |= IXGBE_SPF_REINIT_LOCKED;
+	}
+
+	/* Outer VLAN Ethernet Type */
+	if (changed & IXGBE_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD) {
+		if (priv_flags & IXGBE_PRIV_FLAGS_OUTER_VLAN_PROTO_8021AD)
+			adapter->outer_vlan_proto = ETH_P_8021AD;
+		else
+			adapter->outer_vlan_proto = ETH_P_8021Q;
+
+		if (netdev->features & NETIF_F_HW_VLAN_STAG_RX)
+			do_reset |= IXGBE_SPF_SET_RX_MODE;
+	}
+
+	if (do_reset & IXGBE_SPF_REINIT_LOCKED) {
+		/* reset interface to repopulate queues */
+		if (netif_running(netdev)) {
+			ixgbe_reinit_locked(adapter);
+			do_reset &= ~IXGBE_SPF_REINIT_LOCKED;
+		}
+	}
+
+	if (do_reset & IXGBE_SPF_SET_RX_MODE)
+		ixgbe_set_rx_mode(netdev);
 
 	return 0;
 }

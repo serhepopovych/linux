@@ -623,9 +623,12 @@ struct ixgbe_adapter {
 	u16 tx_work_limit;
 	u64 tx_ipsec;
 
+	/* Outer VLAN Ethernet type */
+	u16 outer_vlan_proto;
+
 	/* Rx fast path data */
-	int num_rx_queues;
 	u16 rx_itr_setting;
+	int num_rx_queues;
 	u64 rx_ipsec;
 
 	/* Port number used to identify VXLAN traffic */
