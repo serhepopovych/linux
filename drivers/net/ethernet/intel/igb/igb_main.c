@@ -148,8 +148,6 @@ static int igb_clean_rx_irq(struct igb_q_vector *, int);
 static int igb_ioctl(struct net_device *, struct ifreq *, int cmd);
 static void igb_tx_timeout(struct net_device *);
 static void igb_reset_task(struct work_struct *);
-static void igb_vlan_mode(struct net_device *netdev,
-			  netdev_features_t features);
 static int igb_vlan_rx_add_vid(struct net_device *, __be16, u16);
 static int igb_vlan_rx_kill_vid(struct net_device *, __be16, u16);
 static void igb_restore_vlan(struct igb_adapter *);
@@ -2463,9 +2461,6 @@ static int igb_set_features(struct net_device *netdev,
 	netdev_features_t changed = netdev->features ^ features;
 	bool need_reset = false;
 
-	if (changed & NETIF_F_HW_VLAN_CTAG_RX)
-		igb_vlan_mode(netdev, features);
-
 	if (!(features & NETIF_F_NTUPLE)) {
 		struct hlist_node *node2;
 		struct igb_nfc_filter *rule;
@@ -2488,7 +2483,8 @@ static int igb_set_features(struct net_device *netdev,
 
 	if (need_reset)
 		igb_do_reset(netdev);
-	else if (changed & NETIF_F_HW_VLAN_CTAG_FILTER)
+	else if (changed & (NETIF_F_HW_VLAN_CTAG_RX |
+			    NETIF_F_HW_VLAN_CTAG_FILTER))
 		igb_set_rx_mode(netdev);
 
 	return 1;
@@ -4880,6 +4876,41 @@ static int igb_write_mc_addr_list(struct net_device *netdev)
 	return netdev_mc_count(netdev);
 }
 
+static void igb_vlan_mode(struct igb_adapter *adapter, bool enable)
+{
+	struct e1000_hw *hw = &adapter->hw;
+	u32 ctrl, rctl;
+
+	if (enable) {
+		/* enable VLAN tag insert/strip */
+		ctrl = rd32(E1000_CTRL);
+		ctrl |= E1000_CTRL_VME;
+		wr32(E1000_CTRL, ctrl);
+
+		/* Disable CFI check */
+		rctl = rd32(E1000_RCTL);
+		rctl &= ~E1000_RCTL_CFIEN;
+		wr32(E1000_RCTL, rctl);
+	} else {
+		/* disable VLAN tag insert/strip */
+		ctrl = rd32(E1000_CTRL);
+		ctrl &= ~E1000_CTRL_VME;
+		wr32(E1000_CTRL, ctrl);
+	}
+
+	igb_set_vf_vlan_strip(adapter, adapter->vfs_allocated_count, enable);
+}
+
+static inline void igb_vlan_strip_disable(struct igb_adapter *adapter)
+{
+	igb_vlan_mode(adapter, false);
+}
+
+static inline void igb_vlan_strip_enable(struct igb_adapter *adapter)
+{
+	igb_vlan_mode(adapter, true);
+}
+
 static int igb_vlan_promisc_enable(struct igb_adapter *adapter)
 {
 	struct e1000_hw *hw = &adapter->hw;
@@ -5086,6 +5117,11 @@ static void igb_set_rx_mode(struct net_device *netdev)
 	}
 #endif
 	wr32(E1000_RLPML, rlpml);
+
+	if (features & NETIF_F_HW_VLAN_CTAG_RX)
+		igb_vlan_strip_enable(adapter);
+	else
+		igb_vlan_strip_disable(adapter);
 
 	/* In order to support SR-IOV and eventually VMDq it is necessary to set
 	 * the VMOLR to enable the appropriate modes.  Without this workaround
@@ -8634,33 +8670,6 @@ s32 igb_write_pcie_cap_reg(struct e1000_hw *hw, u32 reg, u16 *value)
 	return 0;
 }
 
-static void igb_vlan_mode(struct net_device *netdev, netdev_features_t features)
-{
-	struct igb_adapter *adapter = netdev_priv(netdev);
-	struct e1000_hw *hw = &adapter->hw;
-	u32 ctrl, rctl;
-	bool enable = !!(features & NETIF_F_HW_VLAN_CTAG_RX);
-
-	if (enable) {
-		/* enable VLAN tag insert/strip */
-		ctrl = rd32(E1000_CTRL);
-		ctrl |= E1000_CTRL_VME;
-		wr32(E1000_CTRL, ctrl);
-
-		/* Disable CFI check */
-		rctl = rd32(E1000_RCTL);
-		rctl &= ~E1000_RCTL_CFIEN;
-		wr32(E1000_RCTL, rctl);
-	} else {
-		/* disable VLAN tag insert/strip */
-		ctrl = rd32(E1000_CTRL);
-		ctrl &= ~E1000_CTRL_VME;
-		wr32(E1000_CTRL, ctrl);
-	}
-
-	igb_set_vf_vlan_strip(adapter, adapter->vfs_allocated_count, enable);
-}
-
 static int igb_vlan_rx_add_vid(struct net_device *netdev,
 			       __be16 proto, u16 vid)
 {
@@ -8697,7 +8706,6 @@ static void igb_restore_vlan(struct igb_adapter *adapter)
 {
 	u16 vid = 1;
 
-	igb_vlan_mode(adapter->netdev, adapter->netdev->features);
 	igb_vlan_rx_add_vid(adapter->netdev, htons(ETH_P_8021Q), 0);
 
 	for_each_set_bit_from(vid, adapter->active_vlans, VLAN_N_VID)
