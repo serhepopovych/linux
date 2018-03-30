@@ -366,9 +366,6 @@
 #define E1000_COLLISION_DISTANCE        63
 #define E1000_COLD_SHIFT                12
 
-/* Ethertype field values */
-#define ETHERNET_IEEE_VLAN_TYPE 0x8100  /* 802.3ac packet */
-
 /* As per the EAS the maximum supported size is 9.5KB (9728 bytes) */
 #define MAX_JUMBO_FRAME_SIZE		0x2600
 #define MAX_STD_JUMBO_FRAME_SIZE	9216
