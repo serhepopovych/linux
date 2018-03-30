@@ -3167,10 +3167,7 @@ static int igb_set_eee(struct net_device *netdev,
 		adapter->flags |= IGB_FLAG_EEE;
 
 		/* reset link */
-		if (netif_running(netdev))
-			igb_reinit_locked(adapter);
-		else
-			igb_reset(adapter);
+		igb_do_reset(netdev);
 	}
 
 	if (hw->mac.type == e1000_i354)

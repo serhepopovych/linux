@@ -2432,6 +2432,16 @@ void igb_reset(struct igb_adapter *adapter)
 	igb_get_phy_info(hw);
 }
 
+void igb_do_reset(struct net_device *netdev)
+{
+	struct igb_adapter *adapter = netdev_priv(netdev);
+
+	if (netif_running(netdev))
+		igb_reinit_locked(adapter);
+	else
+		igb_reset(adapter);
+}
+
 static netdev_features_t igb_fix_features(struct net_device *netdev,
 	netdev_features_t features)
 {
@@ -2475,10 +2485,7 @@ static int igb_set_features(struct net_device *netdev,
 
 	netdev->features = features;
 
-	if (netif_running(netdev))
-		igb_reinit_locked(adapter);
-	else
-		igb_reset(adapter);
+	igb_do_reset(netev);
 
 	return 1;
 }
