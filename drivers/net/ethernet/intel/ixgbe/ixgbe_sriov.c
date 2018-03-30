@@ -53,8 +53,16 @@ static int __ixgbe_enable_sriov(struct ixgbe_adapter *adapter,
 	struct ixgbe_hw *hw = &adapter->hw;
 	int i;
 
+	/* VMDq requires vlan filtering to be enbled */
+	if (adapter->netdev->features & NETIF_F_HW_VLAN_STAG_RX) {
+		e_warn(probe, "SRIOV is not supported with %s\n",
+		       "Double VLAN");
+		return -EINVAL;
+	}
+
 	if (adapter->xdp_prog) {
-		e_warn(probe, "SRIOV is not supported with XDP\n");
+		e_warn(probe, "SRIOV is not supported with %s\n",
+		       "XDP");
 		return -EINVAL;
 	}
 
